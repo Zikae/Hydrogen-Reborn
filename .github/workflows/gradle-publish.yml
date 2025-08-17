@@ -1,0 +1,23 @@
+name: Java CI
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Java
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+      - name: Build with Gradle
+        run: ./gradlew build
+      - name: Upload JAR to release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: build/libs/*.jar   # Path to your JAR
+          tag: ${{ github.ref_name }}
