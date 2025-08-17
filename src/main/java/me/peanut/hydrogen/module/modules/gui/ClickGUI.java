@@ -12,9 +12,10 @@ import java.util.ArrayList;
 
 /**
  * Created by peanut on 03/02/2021
+ * An improved and modernized ClickGUI module.
  */
 
-@Info(name = "ClickGUI", description = "The click gui", category = Category.Gui, keybind = Keyboard.KEY_LSHIFT)
+@Info(name = "ClickGUI", description = "The click gui", category = Category.Gui, keybind = Keyboard.KEY_RSHIFT)
 public class ClickGUI extends Module {
 
     public ClickGui clickgui;
@@ -29,22 +30,23 @@ public class ClickGUI extends Module {
         addSetting(new Setting("Tooltip", this, true));
         addSetting(new Setting("Particles", this, false));
 
-        addSetting(new Setting("Red", this, 163, 0, 255, true));
-        addSetting(new Setting("Blue", this, 223, 0, 255, true));
-        addSetting(new Setting("Green", this, 255, 0, 255, true));
-        addSetting(new Setting("Alpha", this, 220, 0, 255, true));
+        // Background Color Settings
+        addSetting(new Setting("Background R", this, 20, 0, 255, true));
+        addSetting(new Setting("Background G", this, 20, 0, 255, true));
+        addSetting(new Setting("Background B", this, 20, 0, 255, true));
+        addSetting(new Setting("Background A", this, 180, 0, 255, true));
 
-   /*
-        this exists to i dont have to remember how to add options lol.
+        // Accent Color Settings
+        addSetting(new Setting("Accent R", this, 163, 0, 255, true));
+        addSetting(new Setting("Accent G", this, 223, 0, 255, true));
+        addSetting(new Setting("Accent B", this, 255, 0, 255, true));
+        addSetting(new Setting("Accent A", this, 255, 0, 255, true));
 
-   ArrayList<String> options = new ArrayList<>();
-        options.add("DefaultOption");
-        options.add("Option2");
-        options.add("Option3");
-        Hydrogen.getInstance().settingsManager.rSetting(new Setting("OptionSelector", this, "DefaultOption", options));
-        Hydrogen.getInstance().settingsManager.rSetting(new Setting("BooleanOption", this, false));
-        Hydrogen.getInstance().settingsManager.rSetting(new Setting("SliderOptionInt", this, 255, 0, 255, true));
-        Hydrogen.getInstance().settingsManager.rSetting(new Setting("SliderOptionDouble", this, 10, 0, 20, false));*/
+        // Text Color Settings
+        addSetting(new Setting("Text R", this, 255, 0, 255, true));
+        addSetting(new Setting("Text G", this, 255, 0, 255, true));
+        addSetting(new Setting("Text B", this, 255, 0, 255, true));
+        addSetting(new Setting("Text A", this, 255, 0, 255, true));
     }
 
     @Override
