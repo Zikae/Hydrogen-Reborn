@@ -9,11 +9,20 @@ import java.io.IOException;
 import java.util.Optional;
 
 /**
+ * Created by peanut on 03/02/2021
  * Modernized file handler for ClickGUI coordinates and state.
  */
+@Deprecated
 public class ClickGuiFile {
 
     private static final FileManager clickGuiCoord = new FileManager("clickgui", "Hydrogen");
+
+    public ClickGuiFile() {
+        try {
+            loadClickGui();
+        } catch (Exception ignored) {
+        }
+    }
 
     /**
      * Saves the current state and position of the ClickGUI frames to a file.
@@ -31,6 +40,7 @@ public class ClickGuiFile {
             }
         } catch (IOException e) {
             Logger.error("Failed to save ClickGUI file.", e);
+        } catch (Exception ignored) {
         }
     }
 
@@ -54,5 +64,14 @@ public class ClickGuiFile {
                         .filter(frame -> frame.category.name().equalsIgnoreCase(panelName))
                         .findFirst();
 
-                if (targetFrame.isPresent()) {
-                    Frame frame = targetFrame.get
+                targetFrame.ifPresent(frame -> {
+                    frame.setX((int) panelCoordX);
+                    frame.setY((int) panelCoordY);
+                    frame.setOpen(extended);
+                });
+            }
+        } catch (Exception ignored) {
+        }
+    }
+}
+
