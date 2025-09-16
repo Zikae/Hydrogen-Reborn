@@ -22,36 +22,34 @@ import java.util.HashMap;
 @Info(name = "AimAssist", description = "Automatically aims at enemies", category = Category.Combat, keybind = Keyboard.KEY_R)
 public class AimBot extends Module {
 
-    @SuppressWarnings("unchecked")
-    final HashMap<String, GetCriteriaValue> selectionCriterias = new HashMap();
-    EntityLivingBase target = null;
-
-    boolean offset = false;
-    boolean onlyPrimaryTarget = false;
+    final HashMap<String, GetCriteriaValue> selectionCriterias = new HashMap<>();
+    private EntityLivingBase target = null;
+    private boolean offset = false;
+    private boolean onlyPrimaryTarget = false;
 
     public AimBot() {
+        selectionCriterias.put("Distance", (thePlayer, target) -> 
+            thePlayer.getPositionEyes(0).distanceTo(target.getPositionEyes(0)));
+        selectionCriterias.put("Health", (thePlayer, target) -> target.getHealth());
 
-        selectionCriterias.put("Distance", (thePlayer, target) -> (thePlayer.getPositionEyes(0).distanceTo(target.getPositionEyes(0))));
-        selectionCriterias.put("Health", ((thePlayer, target) -> target.getHealth()));
-
-        ArrayList<String> selectionOrders = new ArrayList<String>(selectionCriterias.keySet());
+        ArrayList<String> selectionOrders = new ArrayList<>(selectionCriterias.keySet());
 
         addSetting(new Setting("Select", this, "Health", selectionOrders));
         addSetting(new Setting("Select smaller", this, true));
-
         addSetting(new Setting("on Click Only", this, false));
         addSetting(new Setting("Max Distance", this, 4.2, 1, 6, false));
         addSetting(new Setting("Visible Only", this, true));
         addSetting(new Setting("Alive Only", this, true));
         addSetting(new Setting("Offset", this, true));
         addSetting(new Setting("Target Only", this, false));
-
         addSetting(new Setting("Target Player", this, false));
         addSetting(new Setting("Target Mobs", this, false));
     }
 
     @EventTarget
     public void onUpdate(EventUpdate e) {
+        if (mc.theWorld == null || mc.thePlayer == null) return;
+
         boolean targetPlayer = h2.settingsManager.getSettingByName(this, "Target Player").isEnabled();
         boolean targetMobs = h2.settingsManager.getSettingByName(this, "Target Mobs").isEnabled();
         boolean selectSmaller = h2.settingsManager.getSettingByName(this, "Select smaller").isEnabled();
@@ -60,30 +58,32 @@ public class AimBot extends Module {
         double maxDistance = h2.settingsManager.getSettingByName("Max Distance").getValue();
         offset = h2.settingsManager.getSettingByName(this, "Offset").isEnabled();
         onlyPrimaryTarget = h2.settingsManager.getSettingByName(this, "Target Only").isEnabled();
-        GetCriteriaValue getCriteriaValue = selectionCriterias.get(h2.settingsManager.getSettingByName("Select").getMode());
+        
+        String selectionMode = h2.settingsManager.getSettingByName("Select").getMode();
+        GetCriteriaValue getCriteriaValue = selectionCriterias.get(selectionMode);
 
         if (getCriteriaValue == null) {
-            System.err.println("getCriteriaValue is null for: " + h2.settingsManager.getSettingByName("Select").getMode());
+            System.err.println("Invalid selection criteria: " + selectionMode);
             return;
         }
 
         target = null;
-        double value = Double.MAX_VALUE;
+        double bestValue = selectSmaller ? Double.MAX_VALUE : Double.MIN_VALUE;
 
         for (Entity entity : mc.theWorld.loadedEntityList) {
-            if (!(entity instanceof EntityLivingBase || entity instanceof EntityOtherPlayerMP)) continue;
+            if (!isValidEntity(entity, targetPlayer, targetMobs)) continue;
+            if (!isWithinRange(entity, maxDistance)) continue;
+            if (!isVisible(entity, visibleOnly)) continue;
+            if (!isAlive(entity, aliveOnly)) continue;
 
-            if (mc.thePlayer.getPositionEyes(0).distanceTo(entity.getPositionEyes(0)) > maxDistance)
-                continue;
-
-            if ((targetPlayer && entity instanceof EntityOtherPlayerMP || targetMobs && entity instanceof EntityMob) && (!visibleOnly || !entity.isInvisible()) && (!aliveOnly || !entity.isDead && entity.isEntityAlive())) {
-                double candidateValue = getCriteriaValue.op(mc.thePlayer, (EntityLivingBase) entity);
-                if (selectSmaller ? candidateValue < value : candidateValue > value) {
-                    value = candidateValue;
-                    target = (EntityLivingBase) entity;
-                    if(target.equals(TargetSelect.primaryTarget)) {
-                        return;
-                    }
+            EntityLivingBase livingEntity = (EntityLivingBase) entity;
+            double candidateValue = getCriteriaValue.op(mc.thePlayer, livingEntity);
+            
+            if (isBetterCandidate(candidateValue, bestValue, selectSmaller)) {
+                bestValue = candidateValue;
+                target = livingEntity;
+                if (target.equals(TargetSelect.primaryTarget)) {
+                    return;
                 }
             }
         }
@@ -91,26 +91,49 @@ public class AimBot extends Module {
 
     @EventTarget
     public void onRender(EventRender3D e) {
-        if(!target.equals(TargetSelect.primaryTarget) && onlyPrimaryTarget)
-            return;
+        if (target == null) return;
+        if (onlyPrimaryTarget && !target.equals(TargetSelect.primaryTarget)) return;
+
         boolean onClick = h2.settingsManager.getSettingByName(this, "on Click Only").isEnabled();
-        final Vec3 positionEyes = target.getPositionEyes(e.getPartialTicks());
-        Vec3 thePlayerPositionEyes = mc.thePlayer.getPositionEyes(e.getPartialTicks());
-        double diffX = positionEyes.xCoord - thePlayerPositionEyes.xCoord;
-        double diffY = positionEyes.yCoord - thePlayerPositionEyes.yCoord;
-        double diffZ = positionEyes.zCoord - thePlayerPositionEyes.zCoord;
+        if (onClick && !mc.gameSettings.keyBindAttack.pressed) return;
+
+        Vec3 targetPos = target.getPositionEyes(e.getPartialTicks());
+        Vec3 playerPos = mc.thePlayer.getPositionEyes(e.getPartialTicks());
+        
+        double diffX = targetPos.xCoord - playerPos.xCoord;
+        double diffY = targetPos.yCoord - playerPos.yCoord;
+        double diffZ = targetPos.zCoord - playerPos.zCoord;
         double diffXZ = Math.sqrt(diffX * diffX + diffZ * diffZ);
 
-        if(!onClick || mc.gameSettings.keyBindAttack.pressed) {
-            mc.thePlayer.rotationYaw = (float) Math.toDegrees(Math.atan2(diffZ, diffX)) - 90F;
-            mc.thePlayer.rotationPitch = (float) -Math.toDegrees(Math.atan2(diffY, diffXZ));
+        mc.thePlayer.rotationYaw = (float) Math.toDegrees(Math.atan2(diffZ, diffX)) - 90F;
+        mc.thePlayer.rotationPitch = (float) -Math.toDegrees(Math.atan2(diffY, diffXZ));
 
-            if (offset) {
-                double f = ((double) new Date().getTime()) / 200f;
-                mc.thePlayer.rotationYaw += (float) Math.sin(f) * 2f;
-                mc.thePlayer.rotationPitch += (float) Math.cos(f) * 2f;
-            }
+        if (offset) {
+            double timeFactor = System.currentTimeMillis() / 200.0;
+            mc.thePlayer.rotationYaw += (float) Math.sin(timeFactor) * 2f;
+            mc.thePlayer.rotationPitch += (float) Math.cos(timeFactor) * 2f;
         }
+    }
+
+    private boolean isValidEntity(Entity entity, boolean targetPlayer, boolean targetMobs) {
+        return (targetPlayer && entity instanceof EntityOtherPlayerMP) || 
+               (targetMobs && entity instanceof EntityMob);
+    }
+
+    private boolean isWithinRange(Entity entity, double maxDistance) {
+        return mc.thePlayer.getPositionEyes(0).distanceTo(entity.getPositionEyes(0)) <= maxDistance;
+    }
+
+    private boolean isVisible(Entity entity, boolean visibleOnly) {
+        return !visibleOnly || !entity.isInvisible();
+    }
+
+    private boolean isAlive(Entity entity, boolean aliveOnly) {
+        return !aliveOnly || (entity.isEntityAlive() && !entity.isDead);
+    }
+
+    private boolean isBetterCandidate(double candidate, double current, boolean selectSmaller) {
+        return selectSmaller ? candidate < current : candidate > current;
     }
 
     public interface GetCriteriaValue {
