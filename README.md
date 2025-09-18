@@ -6,6 +6,14 @@ Hydrogen Reborn
 An open-source, mixin-based ghost client for Minecraft 1.8.9, built on Minecraft Forge.
 This is the Hydrogen Reborn version.
 
+This is a Beta Modified version!!!!
+Things to add:
+FakeLag
+Blink
+Backtrack
+Rework all modules
+Yes zpeanut know about this
+
 Developed by zPeanut, UltramoxX, and Zikae.
 Contributions are highly welcome!
 
