@@ -8,7 +8,6 @@ import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.item.EntityItemFrame;
 import net.minecraft.util.*;
-import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
 import me.peanut.hydrogen.command.Command;
 import me.peanut.hydrogen.events.EventPrimaryTargetSelected;
@@ -16,102 +15,232 @@ import me.peanut.hydrogen.events.EventUpdate;
 import me.peanut.hydrogen.module.Category;
 import me.peanut.hydrogen.module.Info;
 import me.peanut.hydrogen.module.Module;
+import me.peanut.hydrogen.settings.Setting;
 
 import java.util.List;
+import java.util.Objects;
 
-@Info(name = "TargetSelect", description = "Press middle mouse on an enemy to focus them using AimAssist", category = Category.Combat)
+@Info(name = "TargetSelect", description = "Press middle mouse on an entity to focus them using AimAssist", category = Category.Combat)
 public class TargetSelect extends Module {
 
+    // Settings
+    private final Setting<Double> maxDistance = register(new Setting<>("MaxDistance", 6.0, 3.0, 12.0));
+    private final Setting<Double> minDistance = register(new Setting<>("MinDistance", 3.0, 1.0, 6.0));
+    private final Setting<Boolean> playersOnly = register(new Setting<>("PlayersOnly", false));
+    private final Setting<Boolean> showMessages = register(new Setting<>("ShowMessages", true));
+    
+    // State variables
     public static EntityLivingBase primaryTarget = null;
     private Entity pointedEntity;
+    private boolean wasMousePressed = false;
+    private long lastTargetTime = 0;
+    private static final long TARGET_COOLDOWN = 250; // ms
+
+    @Override
+    public void onEnable() {
+        super.onEnable();
+        primaryTarget = null;
+        pointedEntity = null;
+        wasMousePressed = false;
+    }
+
+    @Override
+    public void onDisable() {
+        super.onDisable();
+        clearTarget();
+    }
 
     @EventTarget
-    public void onUpdate(EventUpdate e) {
-        if (Mouse.isButtonDown(2)) {
-            this.getMouseOver(0);
-            if (pointedEntity != null) {
-                if (pointedEntity instanceof EntityLivingBase) {
-                    primaryTarget = (EntityLivingBase) pointedEntity;
-                    EventManager.call(new EventPrimaryTargetSelected(primaryTarget));
-                }
+    public void onUpdate(EventUpdate event) {
+        if (mc.thePlayer == null || mc.theWorld == null) {
+            return;
+        }
+
+        boolean isMousePressed = Mouse.isButtonDown(2); // Middle mouse button
+        
+        // Only process on mouse press (not hold) and respect cooldown
+        if (isMousePressed && !wasMousePressed && canSelectNewTarget()) {
+            handleTargetSelection();
+        }
+        
+        wasMousePressed = isMousePressed;
+        
+        // Clear target if it becomes invalid
+        validateCurrentTarget();
+    }
+
+    private boolean canSelectNewTarget() {
+        return System.currentTimeMillis() - lastTargetTime > TARGET_COOLDOWN;
+    }
+
+    private void handleTargetSelection() {
+        Entity entityUnderCursor = getEntityUnderCursor();
+        
+        if (entityUnderCursor instanceof EntityLivingBase) {
+            EntityLivingBase newTarget = (EntityLivingBase) entityUnderCursor;
+            
+            // Additional validation
+            if (isValidTarget(newTarget)) {
+                setNewTarget(newTarget);
+                lastTargetTime = System.currentTimeMillis();
+            }
+        } else if (entityUnderCursor == null) {
+            // Clear target if clicking on empty space
+            clearTarget();
+        }
+    }
+
+    private boolean isValidTarget(EntityLivingBase entity) {
+        if (entity == null || entity == mc.thePlayer) {
+            return false;
+        }
+        
+        if (playersOnly.getValue() && !entity.isInstanceOf(EntityPlayer.class)) {
+            return false;
+        }
+        
+        double distance = mc.thePlayer.getDistanceToEntity(entity);
+        return distance <= maxDistance.getValue();
+    }
+
+    private void setNewTarget(EntityLivingBase newTarget) {
+        EntityLivingBase oldTarget = primaryTarget;
+        primaryTarget = newTarget;
+        
+        // Only fire event and show message if target actually changed
+        if (!Objects.equals(oldTarget, newTarget)) {
+            EventManager.call(new EventPrimaryTargetSelected(primaryTarget));
+            
+            if (showMessages.getValue()) {
+                String targetName = newTarget.getName();
+                Command.msg("§7Target selected: §f" + targetName);
+            }
+        }
+    }
+
+    private void clearTarget() {
+        if (primaryTarget != null) {
+            primaryTarget = null;
+            if (showMessages.getValue()) {
+                Command.msg("§7Target cleared");
+            }
+        }
+    }
+
+    private void validateCurrentTarget() {
+        if (primaryTarget != null) {
+            if (primaryTarget.isDead || 
+                mc.thePlayer.getDistanceToEntity(primaryTarget) > maxDistance.getValue() * 1.5) {
+                clearTarget();
             }
         }
     }
 
     @EventTarget
-    public void onPrimaryTargetSelected(EventPrimaryTargetSelected e) {
-        Command.msg("New target selected: " + e.getTarget().getName());
-        System.out.println(e.getTarget());
+    public void onPrimaryTargetSelected(EventPrimaryTargetSelected event) {
+        if (event.getTarget() != null) {
+            System.out.println("Target selected: " + event.getTarget().getName() + 
+                             " [" + event.getTarget().getClass().getSimpleName() + "]");
+        }
     }
 
-    public void getMouseOver(float partialTicks) {
-        Entity entity = mc.getRenderViewEntity();
-        if (entity != null && mc.theWorld != null) {
-            this.pointedEntity = null;
-            double d0 = 6f; // Distance
-            MovingObjectPosition objectMouseOver = entity.rayTrace(d0, partialTicks);
-            double d1 = d0;
-            Vec3 vec3 = entity.getPositionEyes(partialTicks);
-            boolean flag = false;
-            int i = 1;
+    /**
+     * Gets the entity currently under the player's cursor using raycasting
+     * @return The entity under cursor, or null if none
+     */
+    private Entity getEntityUnderCursor() {
+        Entity viewEntity = mc.getRenderViewEntity();
+        if (viewEntity == null || mc.theWorld == null) {
+            return null;
+        }
 
-            if (mc.objectMouseOver != null) {
-                d1 = mc.objectMouseOver.hitVec.distanceTo(vec3);
-            }
+        double maxDist = maxDistance.getValue();
+        MovingObjectPosition mouseOver = viewEntity.rayTrace(maxDist, 1.0F);
+        double currentDistance = maxDist;
+        Vec3 eyePosition = viewEntity.getPositionEyes(1.0F);
 
-            Vec3 vec31 = entity.getLook(partialTicks);
-            Vec3 vec32 = vec3.addVector(vec31.xCoord * d0, vec31.yCoord * d0, vec31.zCoord * d0);
-            this.pointedEntity = null;
-            Vec3 vec33 = null;
-            float f = 1.0F;
-            List<Entity> list = mc.theWorld.getEntitiesInAABBexcluding(entity, entity.getEntityBoundingBox().addCoord(vec31.xCoord * d0, vec31.yCoord * d0, vec31.zCoord * d0).expand(f, f, f), Predicates.and(EntitySelectors.NOT_SPECTATING, new Predicate<Entity>() {
-                public boolean apply(Entity p_apply_1_) {
-                    return p_apply_1_.canBeCollidedWith();
+        // Update distance if we hit something
+        if (mouseOver != null) {
+            currentDistance = mouseOver.hitVec.distanceTo(eyePosition);
+        }
+
+        // Get look vector and end position
+        Vec3 lookVector = viewEntity.getLook(1.0F);
+        Vec3 endPosition = eyePosition.addVector(
+            lookVector.xCoord * maxDist, 
+            lookVector.yCoord * maxDist, 
+            lookVector.zCoord * maxDist
+        );
+
+        Entity targetEntity = null;
+        double closestDistance = currentDistance;
+        
+        // Create expanded bounding box for entity search
+        AxisAlignedBB searchArea = viewEntity.getEntityBoundingBox()
+            .addCoord(lookVector.xCoord * maxDist, lookVector.yCoord * maxDist, lookVector.zCoord * maxDist)
+            .expand(1.0F, 1.0F, 1.0F);
+
+        // Get entities in search area
+        List<Entity> entities = mc.theWorld.getEntitiesInAABBexcluding(
+            viewEntity, 
+            searchArea, 
+            Predicates.and(
+                EntitySelectors.NOT_SPECTATING,
+                entity -> entity != null && entity.canBeCollidedWith()
+            )
+        );
+
+        // Find closest entity that intersects with our ray
+        for (Entity entity : entities) {
+            float borderSize = entity.getCollisionBorderSize();
+            AxisAlignedBB entityBB = entity.getEntityBoundingBox()
+                .expand(borderSize, borderSize, borderSize);
+            MovingObjectPosition intercept = entityBB.calculateIntercept(eyePosition, endPosition);
+
+            if (entityBB.isVecInside(eyePosition)) {
+                // We're inside the entity's bounding box
+                if (closestDistance >= 0.0D) {
+                    targetEntity = entity;
+                    closestDistance = 0.0D;
                 }
-            }));
-            double d2 = d1;
-
-            for (int j = 0; j < list.size(); ++j) {
-                Entity entity1 = list.get(j);
-                float f1 = entity1.getCollisionBorderSize();
-                AxisAlignedBB axisalignedbb = entity1.getEntityBoundingBox().expand(f1, f1, f1);
-                MovingObjectPosition movingobjectposition = axisalignedbb.calculateIntercept(vec3, vec32);
-                if (axisalignedbb.isVecInside(vec3)) {
-                    if (d2 >= 0.0D) {
-                        this.pointedEntity = entity1;
-                        vec33 = movingobjectposition == null ? vec3 : movingobjectposition.hitVec;
-                        d2 = 0.0D;
-                    }
-                } else if (movingobjectposition != null) {
-                    double d3 = vec3.distanceTo(movingobjectposition.hitVec);
-                    if (d3 < d2 || d2 == 0.0D) {
-                        if (entity1 == entity.ridingEntity && !entity.canRiderInteract()) {
-                            if (d2 == 0.0D) {
-                                this.pointedEntity = entity1;
-                                vec33 = movingobjectposition.hitVec;
-                            }
-                        } else {
-                            this.pointedEntity = entity1;
-                            vec33 = movingobjectposition.hitVec;
-                            d2 = d3;
+            } else if (intercept != null) {
+                double distance = eyePosition.distanceTo(intercept.hitVec);
+                
+                if (distance < closestDistance || closestDistance == 0.0D) {
+                    // Handle riding entity edge case
+                    if (entity == viewEntity.ridingEntity && !viewEntity.canRiderInteract()) {
+                        if (closestDistance == 0.0D) {
+                            targetEntity = entity;
                         }
+                    } else {
+                        targetEntity = entity;
+                        closestDistance = distance;
                     }
-                }
-            }
-
-            if (this.pointedEntity != null && flag && vec3.distanceTo(vec33) > 3.0D) {
-                this.pointedEntity = null;
-                mc.objectMouseOver = new MovingObjectPosition(MovingObjectPosition.MovingObjectType.MISS, vec33, null, new BlockPos(vec33));
-            }
-
-            if (this.pointedEntity != null && (d2 < d1 || mc.objectMouseOver == null)) {
-                mc.objectMouseOver = new MovingObjectPosition(this.pointedEntity, vec33);
-                if (this.pointedEntity instanceof EntityLivingBase || this.pointedEntity instanceof EntityItemFrame) {
-                    mc.pointedEntity = this.pointedEntity;
                 }
             }
         }
 
+        // Additional distance validation
+        if (targetEntity != null && closestDistance > minDistance.getValue()) {
+            return targetEntity;
+        }
+
+        return null;
     }
 
+    public static EntityLivingBase getPrimaryTarget() {
+        return primaryTarget;
+    }
+
+    public static boolean hasTarget() {
+        return primaryTarget != null && !primaryTarget.isDead;
+    }
+
+    public static void forceSetTarget(EntityLivingBase target) {
+        primaryTarget = target;
+    }
+
+    public static void forceClearTarget() {
+        primaryTarget = null;
+    }
 }
