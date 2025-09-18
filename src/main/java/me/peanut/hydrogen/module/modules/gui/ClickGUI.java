@@ -18,7 +18,7 @@ import java.util.Arrays;
 
 /**
  * Enhanced ClickGUI Module with comprehensive customization options
- * @author peanut
+ * @author Zikae
  * @version 2.0
  */
 @Info(name = "ClickGUI", description = "Customizable click-based GUI for module management", category = Category.Gui, keybind = Keyboard.KEY_RSHIFT)
